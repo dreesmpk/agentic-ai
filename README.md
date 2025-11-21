@@ -1,2 +1,2 @@
 # agentic-ai
-Portfolio of agentic-ai application
+Portfolio of agentic-ai applications
