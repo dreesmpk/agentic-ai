@@ -1,181 +1,244 @@
 import operator
-from typing import Annotated, List, TypedDict
-from langgraph.graph import StateGraph, START, END
-from langchain.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+import json
+from typing import Annotated, List, TypedDict, Literal
+
+# --- Imports ---
 from langchain_tavily import TavilySearch
 from langchain_anthropic import ChatAnthropic
-from langgraph.types import Send
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode
-import json
+from langgraph.graph.message import add_messages
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.types import RetryPolicy
 
 
+# --- 1. Define Agent State ---
 class AgentState(TypedDict):
     topic: str
-    messages: Annotated[list, operator.add]
+    messages: Annotated[list, add_messages]
     notes: Annotated[List[str], operator.add]
+    sources: Annotated[List[str], operator.add]
+    loop_step: Annotated[int, operator.add]
 
 
-class SummarizerInput(TypedDict):
-    topic: str
-    content: str
-
-
-# Initialize tools and model
-tool = TavilySearch(max_results=3, topic="general")
+# --- 2. Setup Tools & Model ---
+tool = TavilySearch(max_results=2, topic="general")
 tools = [tool]
 
-llm = ChatAnthropic(model="claude-sonnet-4-5-20250929")
+llm = ChatAnthropic(model="claude-sonnet-4-5-20250929", temperature=0)
 llm_with_tools = llm.bind_tools(tools)
+
+# --- 3. Define Nodes ---
 
 
 def chatbot(state: AgentState):
-    """Research agent node that decides if more research is needed."""
-    try:
-        messages = [
-            SystemMessage(
-                f"You are a researcher researching: {state['topic']}. "
-                "Search for relevant information to build a comprehensive understanding."
-            )
-        ] + state["messages"]
-        response = llm_with_tools.invoke(messages)
-        return {"messages": [response]}
-    except Exception as e:
-        print(f"Error in chatbot: {e}")
-        return {"messages": [AIMessage(content=f"Error occurred: {str(e)}")]}
+    current_notes = "\n".join(state.get("notes", []))
+    current_loop = state.get("loop_step", 0)
 
+    # Make the prompt stricter about the limit
+    loop_instruction = ""
+    if current_loop >= 3:
+        loop_instruction = "This is your FINAL chance to research. Do not ask for more searches after this."
 
-tool_node = ToolNode(tools)
-
-
-def summarize_docs(state: AgentState):
-    """Summarize search results relevant to the topic."""
-    try:
-        tool_message = state["messages"][-1]
-
-        if isinstance(tool_message, ToolMessage):
-            content = tool_message.content
-            # Try to parse if it's JSON, otherwise use as-is
-            try:
-                if isinstance(content, str):
-                    content = json.loads(content)
-            except json.JSONDecodeError:
-                pass
-        else:
-            return {"notes": ["No search results found."]}
-
-        # Format content for summarization
-        content_str = str(content) if not isinstance(content, str) else content
-
-        response = llm.invoke(
-            [
-                HumanMessage(
-                    f"Summarize the following search results relevant to '{state['topic']}':\n\n{content_str}\n\n"
-                    "Provide a concise summary highlighting key findings."
-                )
-            ]
-        )
-        return {"notes": [response.content]}
-    except Exception as e:
-        print(f"Error summarizing: {e}")
-        return {"notes": [f"Summarization failed: {str(e)}"]}
-
-
-def synthesize_answer(state: AgentState):
-    """Synthesize all gathered notes into a comprehensive report."""
-    try:
-        notes = (
-            "\n\n".join(state["notes"])
-            if state["notes"]
-            else "No research notes found."
-        )
-
-        response = llm.invoke(
-            [
-                HumanMessage(
-                    f"Based on the following research notes about '{state['topic']}', "
-                    f"write a comprehensive, well-structured report:\n\n{notes}"
-                )
-            ]
-        )
-        return {"messages": [response]}
-    except Exception as e:
-        print(f"Error synthesizing: {e}")
-        return {"messages": [AIMessage(content=f"Synthesis failed: {str(e)}")]}
-
-
-def should_continue(state: AgentState):
-    """Determine if more research is needed or if we should synthesize."""
-    try:
-        last_message = state["messages"][-1]
-
-        # If it's an AI message, check for tool calls
-        if isinstance(last_message, AIMessage):
-            if hasattr(last_message, "tool_calls") and last_message.tool_calls:
-                return "tools"
-
-        # Otherwise, move to synthesis
-        return "synthesize"
-    except Exception as e:
-        print(f"Error in continuation logic: {e}")
-        return "synthesize"
-
-
-def map_from_tools(state: AgentState):
-    """Route tool outputs to summarization."""
-    try:
-        # After tools execute, summarize the results
-        return Send(node="summarize", arg=state)
-    except Exception as e:
-        print(f"Error mapping from tools: {e}")
-        return "synthesize"
-
-
-# Build the graph
-graph = StateGraph(state_schema=AgentState)
-
-# Add nodes
-graph.add_node("chatbot", chatbot)
-graph.add_node("tools", tool_node)
-graph.add_node("summarize", summarize_docs)
-graph.add_node("synthesize", synthesize_answer)
-
-# Set entry point
-graph.add_edge(START, "chatbot")
-
-# Add conditional edge from chatbot
-graph.add_conditional_edges("chatbot", should_continue)
-
-# Tool results go to summarization
-graph.add_edge("tools", "summarize")
-
-# Summarization goes to synthesis
-graph.add_edge("summarize", "synthesize")
-
-# End the graph
-graph.add_edge("synthesize", END)
-
-compiled = graph.compile()
-
-# Run the agent
-if __name__ == "__main__":
-    initial_state = AgentState(
-        topic="State of the art of agentic AI",
-        messages=[
-            HumanMessage(
-                "Please research the topic provided and write a comprehensive summary."
-            )
-        ],
-        notes=[],
+    system_prompt = (
+        f"You are a senior researcher working on: '{state['topic']}'.\n"
+        f"Current Iteration: {current_loop}/3. {loop_instruction}\n\n"
+        f"Here are the notes you have gathered so far:\n"
+        f"{'No notes yet.' if not current_notes else current_notes}\n\n"
+        "Instructions:\n"
+        "1. If you need more information, call the search tool.\n"
+        "2. If you have sufficient information, simply reply with 'READY_TO_REPORT'.\n"
     )
 
+    messages = [SystemMessage(content=system_prompt)] + state["messages"]
+    response = llm_with_tools.invoke(messages)
+    return {"messages": [response]}
+
+
+def summarize_search(state: AgentState):
+    tool_message = state["messages"][-1]
+
     try:
-        final_state = compiled.invoke(initial_state)
-        final_answer = final_state["messages"][-1].content
+        content = tool_message.content
+        data = json.loads(content) if isinstance(content, str) else content
+    except:
+        data = tool_message.content
 
-        filename = "agent_research_report.md"
-        with open(filename, "w", encoding="utf-8") as f:
-            f.write(final_answer)
+    results = data.get("results", []) if isinstance(data, dict) else data
 
-        print(f"✅ Success! Report saved to {filename}")
-    except Exception as e:
-        print(f"❌ Agent execution failed: {e}")
+    new_sources = []
+    content_text = ""
+
+    if isinstance(results, list):
+        for res in results:
+            if isinstance(res, dict):
+                url = res.get("url", "Unknown")
+                raw_content = res.get("content", "")
+
+                # Truncate to avoid Rate Limits
+                if len(raw_content) > 5000:
+                    raw_content = raw_content[:5000] + "... [truncated]"
+
+                new_sources.append(url)
+                content_text += f"Source ({url}):\n{raw_content}\n\n"
+
+    if not content_text:
+        return {"notes": ["Search returned no usable text."], "loop_step": 1}
+
+    summary_prompt = f"Extract key facts from these results regarding '{state['topic']}':\n\n{content_text}"
+    response = llm.invoke([HumanMessage(content=summary_prompt)])
+
+    # Increment loop_step by 1
+    return {"notes": [response.content], "sources": new_sources, "loop_step": 1}
+
+
+def human_review_node(state: AgentState):
+    pass
+
+
+def synthesize_report(state: AgentState):
+    notes = "\n\n".join(state["notes"])
+    sources = "\n".join([f"- {s}" for s in set(state["sources"])])
+
+    prompt = (
+        f"Topic: {state['topic']}\n\n"
+        f"Research Notes:\n{notes}\n\n"
+        f"Sources:\n{sources}\n\n"
+        "Write a comprehensive report. Include a References section."
+    )
+    response = llm.invoke([HumanMessage(content=prompt)])
+    return {"messages": [response]}
+
+
+# --- 4. Routing Logic (FIXED) ---
+
+
+def route_after_chat(state: AgentState) -> Literal["tools", "human_review", END]:
+    last_message = state["messages"][-1]
+
+    # --- FIX IS HERE ---
+    # Check the Limit FIRST.
+    # If we have done 3 or more loops, we force a review/stop,
+    # even if the LLM wants to search again.
+    if state.get("loop_step", 0) >= 3:
+        return "human_review"
+
+    # Then check for tool calls
+    if last_message.tool_calls:
+        return "tools"
+
+    if "READY_TO_REPORT" in last_message.content:
+        return "human_review"
+
+    if state["notes"]:
+        return "human_review"
+
+    return END
+
+
+def route_after_review(state: AgentState) -> Literal["synthesize", "chatbot"]:
+    last_message = state["messages"][-1]
+    if isinstance(last_message, HumanMessage):
+        return "chatbot"
+    return "synthesize"
+
+
+# --- 5. Build Graph ---
+workflow = StateGraph(AgentState)
+
+workflow.add_node("chatbot", chatbot)
+workflow.add_node("tools", ToolNode(tools))
+workflow.add_node("summarize", summarize_search, retry=RetryPolicy(max_attempts=3))
+workflow.add_node("human_review", human_review_node)
+workflow.add_node("synthesize", synthesize_report)
+
+workflow.add_edge(START, "chatbot")
+
+workflow.add_conditional_edges(
+    "chatbot",
+    route_after_chat,
+    {"tools": "tools", "human_review": "human_review", END: END},
+)
+
+workflow.add_edge("tools", "summarize")
+workflow.add_edge("summarize", "chatbot")
+
+workflow.add_conditional_edges(
+    "human_review",
+    route_after_review,
+    {"synthesize": "synthesize", "chatbot": "chatbot"},
+)
+
+workflow.add_edge("synthesize", END)
+
+memory = MemorySaver()
+app = workflow.compile(checkpointer=memory, interrupt_before=["human_review"])
+
+
+# --- 6. Run Interactive Session (UPDATED PRINTING) ---
+def run_interactive_session():
+    thread_id = "research-session-fixed"
+    config = {"configurable": {"thread_id": thread_id}}
+
+    initial_state = {
+        "topic": "Comparison of Rust vs C++ for Embedded Systems in 2025",
+        "messages": [HumanMessage(content="Please research this topic.")],
+        "notes": [],
+        "sources": [],
+        "loop_step": 0,
+    }
+
+    print(f"🚀 Starting research on: {initial_state['topic']}")
+
+    for event in app.stream(initial_state, config=config):
+        for key, value in event.items():
+            print(f"-> Executed: {key}")
+
+            # Print what the chatbot decided to do
+            if key == "chatbot" and "messages" in value:
+                msg = value["messages"][0]
+                if msg.tool_calls:
+                    # --- FIX: PRINT QUERIES ---
+                    for tc in msg.tool_calls:
+                        query = tc["args"].get("query", "No query found")
+                        print(f"   🔎 SEARCH QUERY: {query}")
+                else:
+                    print(f"   ✅ Chatbot is ready: {msg.content}")
+
+    snapshot = app.get_state(config)
+
+    if snapshot.next and snapshot.next[0] == "human_review":
+        print("\n" + "=" * 40)
+        print("⏸️  PAUSED FOR HUMAN REVIEW")
+        print("=" * 40)
+        print(f"Collected {len(snapshot.values['notes'])} research notes.")
+
+        user_input = input("\nType 'ok' to approve report, or type feedback: ")
+
+        if user_input.lower() in ["ok", "yes", "y", "go"]:
+            print("\n📝 Approved! Generating report...")
+            final_stream = app.stream(None, config=config)
+        else:
+            print(f"\n🔄 Feedback: '{user_input}'")
+            print("Returning to Chatbot...")
+            app.update_state(config, {"messages": [HumanMessage(content=user_input)]})
+            final_stream = app.stream(None, config=config)
+
+        for event in final_stream:
+            for key, value in event.items():
+                print(f"-> Executed: {key}")
+
+        final_state = app.get_state(config)
+        if "messages" in final_state.values:
+            last_msg = final_state.values["messages"][-1]
+            print("\n✅ FINAL REPORT:\n")
+            print(last_msg.content)
+
+            with open("final_report.md", "w", encoding="utf-8") as f:
+                f.write(last_msg.content)
+                print("\n(Saved to final_report.md)")
+
+
+if __name__ == "__main__":
+    run_interactive_session()
