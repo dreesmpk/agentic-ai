@@ -1,8 +1,6 @@
 import operator
 import json
 from typing import Annotated, List, TypedDict, Literal
-
-# --- Imports ---
 from langchain_tavily import TavilySearch
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -29,9 +27,8 @@ tools = [tool]
 llm = ChatAnthropic(model="claude-sonnet-4-5-20250929", temperature=0)
 llm_with_tools = llm.bind_tools(tools)
 
+
 # --- 3. Define Nodes ---
-
-
 def chatbot(state: AgentState):
     current_notes = "\n".join(state.get("notes", []))
     current_loop = state.get("loop_step", 0)
@@ -112,8 +109,6 @@ def synthesize_report(state: AgentState):
 
 
 # --- 4. Routing Logic (FIXED) ---
-
-
 def route_after_chat(state: AgentState) -> Literal["tools", "human_review", END]:
     last_message = state["messages"][-1]
 
