@@ -1,6 +1,10 @@
 import operator
 import json
+import datetime
+import re
 from typing import Annotated, List, TypedDict, Literal
+
+# --- Imports ---
 from langchain_tavily import TavilySearch
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -32,9 +36,6 @@ llm_with_tools = llm.bind_tools(tools)
 def chatbot(state: AgentState):
     current_notes = "\n".join(state.get("notes", []))
     current_loop = state.get("loop_step", 0)
-
-    # REVISION: Removed the explicit warning prompt logic here.
-    # The limit is handled strictly by the router.
 
     system_prompt = (
         f"You are a senior researcher working on: '{state['topic']}'.\n"
@@ -102,12 +103,12 @@ def synthesize_report(state: AgentState):
     return {"messages": [response]}
 
 
-# --- 4. Routing Logic (AUTOMATED) ---
+# --- 4. Routing Logic ---
 def route_after_chat(state: AgentState) -> Literal["tools", "synthesize", END]:
     last_message = state["messages"][-1]
 
     # Check the Limit. If hit, go straight to synthesis regardless of LLM desire.
-    if state.get("loop_step", 0) >= 3:
+    if state.get("loop_step", 0) >= 1:
         return "synthesize"
 
     # Check for tool calls
@@ -125,7 +126,7 @@ def route_after_chat(state: AgentState) -> Literal["tools", "synthesize", END]:
     return END
 
 
-# --- 5. Build Graph (AUTOMATED) ---
+# --- 5. Build Graph ---
 workflow = StateGraph(AgentState)
 
 workflow.add_node("chatbot", chatbot)
@@ -149,20 +150,32 @@ memory = MemorySaver()
 app = workflow.compile(checkpointer=memory)
 
 
-# --- 6. Run Session (AUTOMATED) ---
+# --- 6. Run Session (UPDATED) ---
 def run_automated_session():
-    thread_id = "research-session-auto-clean"
+    # 1. Ask user for topic
+    user_topic = input("Enter the research topic: ").strip()
+    if not user_topic:
+        user_topic = "Comparison of Rust vs C++ for Embedded Systems in 2025"
+        print(f"No topic provided. Defaulting to: {user_topic}")
+
+    # Generate a safe filename based on timestamp
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    # Clean topic for filename (alphanumeric only, max 20 chars)
+    safe_topic = re.sub(r"[^a-zA-Z0-9]", "_", user_topic)[:20]
+    filename = f"report_{safe_topic}_{timestamp}.md"
+
+    thread_id = f"research-{timestamp}"
     config = {"configurable": {"thread_id": thread_id}}
 
     initial_state = {
-        "topic": "Comparison of Rust vs C++ for Embedded Systems in 2025",
+        "topic": user_topic,
         "messages": [HumanMessage(content="Please research this topic.")],
         "notes": [],
         "sources": [],
         "loop_step": 0,
     }
 
-    print(f"🚀 Starting automated research on: {initial_state['topic']}")
+    print(f"\n🚀 Starting automated research on: {initial_state['topic']}")
 
     # Single loop that runs until completion
     for event in app.stream(initial_state, config=config):
@@ -185,9 +198,10 @@ def run_automated_session():
         print("\n✅ FINAL REPORT:\n")
         print(last_msg.content)
 
-        with open("final_report.md", "w", encoding="utf-8") as f:
+        # 2. Save with dynamic filename
+        with open(filename, "w", encoding="utf-8") as f:
             f.write(last_msg.content)
-            print("\n(Saved to final_report.md)")
+            print(f"\n(Saved to {filename})")
 
 
 if __name__ == "__main__":
