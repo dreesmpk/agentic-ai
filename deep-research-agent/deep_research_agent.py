@@ -1,6 +1,8 @@
 import operator
 import json
 from typing import Annotated, List, TypedDict, Literal
+
+# --- Imports ---
 from langchain_tavily import TavilySearch
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -90,10 +92,6 @@ def summarize_search(state: AgentState):
     return {"notes": [response.content], "sources": new_sources, "loop_step": 1}
 
 
-def human_review_node(state: AgentState):
-    pass
-
-
 def synthesize_report(state: AgentState):
     notes = "\n\n".join(state["notes"])
     sources = "\n".join([f"- {s}" for s in set(state["sources"])])
@@ -108,72 +106,59 @@ def synthesize_report(state: AgentState):
     return {"messages": [response]}
 
 
-# --- 4. Routing Logic (FIXED) ---
-def route_after_chat(state: AgentState) -> Literal["tools", "human_review", END]:
+# --- 4. Routing Logic (UPDATED) ---
+def route_after_chat(state: AgentState) -> Literal["tools", "synthesize", END]:
     last_message = state["messages"][-1]
 
-    # --- FIX IS HERE ---
-    # Check the Limit FIRST.
-    # If we have done 3 or more loops, we force a review/stop,
-    # even if the LLM wants to search again.
+    # Check the Limit. If hit, go straight to synthesis.
     if state.get("loop_step", 0) >= 3:
-        return "human_review"
+        return "synthesize"
 
-    # Then check for tool calls
+    # Check for tool calls
     if last_message.tool_calls:
         return "tools"
 
+    # If LLM is ready, go straight to synthesis.
     if "READY_TO_REPORT" in last_message.content:
-        return "human_review"
+        return "synthesize"
 
+    # Fallback if no tool call but no explicit ready signal
     if state["notes"]:
-        return "human_review"
+        return "synthesize"
 
     return END
 
 
-def route_after_review(state: AgentState) -> Literal["synthesize", "chatbot"]:
-    last_message = state["messages"][-1]
-    if isinstance(last_message, HumanMessage):
-        return "chatbot"
-    return "synthesize"
-
-
-# --- 5. Build Graph ---
+# --- 5. Build Graph (UPDATED) ---
 workflow = StateGraph(AgentState)
 
 workflow.add_node("chatbot", chatbot)
 workflow.add_node("tools", ToolNode(tools))
 workflow.add_node("summarize", summarize_search, retry=RetryPolicy(max_attempts=3))
-workflow.add_node("human_review", human_review_node)
 workflow.add_node("synthesize", synthesize_report)
 
 workflow.add_edge(START, "chatbot")
 
+# Updated conditional edges to skip human review
 workflow.add_conditional_edges(
     "chatbot",
     route_after_chat,
-    {"tools": "tools", "human_review": "human_review", END: END},
+    {"tools": "tools", "synthesize": "synthesize", END: END},
 )
 
 workflow.add_edge("tools", "summarize")
 workflow.add_edge("summarize", "chatbot")
-
-workflow.add_conditional_edges(
-    "human_review",
-    route_after_review,
-    {"synthesize": "synthesize", "chatbot": "chatbot"},
-)
-
 workflow.add_edge("synthesize", END)
 
 memory = MemorySaver()
-app = workflow.compile(checkpointer=memory, interrupt_before=["human_review"])
+
+# Interrupts removed
+app = workflow.compile(checkpointer=memory)
 
 
-# --- 6. Run Interactive Session (UPDATED PRINTING) ---
-def run_interactive_session():
-    thread_id = "research-session-fixed"
+# --- 6. Run Session (UPDATED - FULLY AUTOMATED) ---
+def run_automated_session():
+    thread_id = "research-session-auto"
     config = {"configurable": {"thread_id": thread_id}}
 
     initial_state = {
@@ -184,56 +169,33 @@ def run_interactive_session():
         "loop_step": 0,
     }
 
-    print(f"🚀 Starting research on: {initial_state['topic']}")
+    print(f"🚀 Starting automated research on: {initial_state['topic']}")
 
+    # Single loop that runs until completion
     for event in app.stream(initial_state, config=config):
         for key, value in event.items():
             print(f"-> Executed: {key}")
 
-            # Print what the chatbot decided to do
             if key == "chatbot" and "messages" in value:
                 msg = value["messages"][0]
                 if msg.tool_calls:
-                    # --- FIX: PRINT QUERIES ---
                     for tc in msg.tool_calls:
                         query = tc["args"].get("query", "No query found")
                         print(f"   🔎 SEARCH QUERY: {query}")
                 else:
                     print(f"   ✅ Chatbot is ready: {msg.content}")
 
-    snapshot = app.get_state(config)
+    # Retrieve final state to print the report
+    final_state = app.get_state(config)
+    if "messages" in final_state.values:
+        last_msg = final_state.values["messages"][-1]
+        print("\n✅ FINAL REPORT:\n")
+        print(last_msg.content)
 
-    if snapshot.next and snapshot.next[0] == "human_review":
-        print("\n" + "=" * 40)
-        print("⏸️  PAUSED FOR HUMAN REVIEW")
-        print("=" * 40)
-        print(f"Collected {len(snapshot.values['notes'])} research notes.")
-
-        user_input = input("\nType 'ok' to approve report, or type feedback: ")
-
-        if user_input.lower() in ["ok", "yes", "y", "go"]:
-            print("\n📝 Approved! Generating report...")
-            final_stream = app.stream(None, config=config)
-        else:
-            print(f"\n🔄 Feedback: '{user_input}'")
-            print("Returning to Chatbot...")
-            app.update_state(config, {"messages": [HumanMessage(content=user_input)]})
-            final_stream = app.stream(None, config=config)
-
-        for event in final_stream:
-            for key, value in event.items():
-                print(f"-> Executed: {key}")
-
-        final_state = app.get_state(config)
-        if "messages" in final_state.values:
-            last_msg = final_state.values["messages"][-1]
-            print("\n✅ FINAL REPORT:\n")
-            print(last_msg.content)
-
-            with open("final_report.md", "w", encoding="utf-8") as f:
-                f.write(last_msg.content)
-                print("\n(Saved to final_report.md)")
+        with open("final_report.md", "w", encoding="utf-8") as f:
+            f.write(last_msg.content)
+            print("\n(Saved to final_report.md)")
 
 
 if __name__ == "__main__":
-    run_interactive_session()
+    run_automated_session()
