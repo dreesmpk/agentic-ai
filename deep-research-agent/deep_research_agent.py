@@ -1,8 +1,6 @@
 import operator
 import json
 from typing import Annotated, List, TypedDict, Literal
-
-# --- Imports ---
 from langchain_tavily import TavilySearch
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -35,14 +33,12 @@ def chatbot(state: AgentState):
     current_notes = "\n".join(state.get("notes", []))
     current_loop = state.get("loop_step", 0)
 
-    # Make the prompt stricter about the limit
-    loop_instruction = ""
-    if current_loop >= 3:
-        loop_instruction = "This is your FINAL chance to research. Do not ask for more searches after this."
+    # REVISION: Removed the explicit warning prompt logic here.
+    # The limit is handled strictly by the router.
 
     system_prompt = (
         f"You are a senior researcher working on: '{state['topic']}'.\n"
-        f"Current Iteration: {current_loop}/3. {loop_instruction}\n\n"
+        f"Current Iteration: {current_loop}/3.\n\n"
         f"Here are the notes you have gathered so far:\n"
         f"{'No notes yet.' if not current_notes else current_notes}\n\n"
         "Instructions:\n"
@@ -106,11 +102,11 @@ def synthesize_report(state: AgentState):
     return {"messages": [response]}
 
 
-# --- 4. Routing Logic (UPDATED) ---
+# --- 4. Routing Logic (AUTOMATED) ---
 def route_after_chat(state: AgentState) -> Literal["tools", "synthesize", END]:
     last_message = state["messages"][-1]
 
-    # Check the Limit. If hit, go straight to synthesis.
+    # Check the Limit. If hit, go straight to synthesis regardless of LLM desire.
     if state.get("loop_step", 0) >= 3:
         return "synthesize"
 
@@ -129,7 +125,7 @@ def route_after_chat(state: AgentState) -> Literal["tools", "synthesize", END]:
     return END
 
 
-# --- 5. Build Graph (UPDATED) ---
+# --- 5. Build Graph (AUTOMATED) ---
 workflow = StateGraph(AgentState)
 
 workflow.add_node("chatbot", chatbot)
@@ -139,7 +135,6 @@ workflow.add_node("synthesize", synthesize_report)
 
 workflow.add_edge(START, "chatbot")
 
-# Updated conditional edges to skip human review
 workflow.add_conditional_edges(
     "chatbot",
     route_after_chat,
@@ -151,14 +146,12 @@ workflow.add_edge("summarize", "chatbot")
 workflow.add_edge("synthesize", END)
 
 memory = MemorySaver()
-
-# Interrupts removed
 app = workflow.compile(checkpointer=memory)
 
 
-# --- 6. Run Session (UPDATED - FULLY AUTOMATED) ---
+# --- 6. Run Session (AUTOMATED) ---
 def run_automated_session():
-    thread_id = "research-session-auto"
+    thread_id = "research-session-auto-clean"
     config = {"configurable": {"thread_id": thread_id}}
 
     initial_state = {
