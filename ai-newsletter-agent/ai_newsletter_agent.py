@@ -16,7 +16,6 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from langgraph.graph import StateGraph, START, END
 from langgraph.types import RetryPolicy
 from dotenv import load_dotenv
-from firecrawl import Firecrawl
 
 load_dotenv()
 
@@ -45,25 +44,111 @@ class TargetCompany(TypedDict):
 
 
 TARGET_COMPANIES: List[TargetCompany] = [
-    {"name": "OpenAI", "keywords": ["openai", "chatgpt", "gpt-4", "sam altman"]},
+    {
+        "name": "OpenAI",
+        "keywords": [
+            "openai",
+            "chatgpt",
+            "gpt-",
+            "sam altman",
+            "codex",
+            "sora",
+            "mark chen",
+        ],
+    },
     {
         "name": "Google DeepMind",
-        "keywords": ["deepmind", "gemini", "google ai", "demis hassabis"],
+        "keywords": [
+            "deepmind",
+            "gemini",
+            "google ai",
+            "demis hassabis",
+            "veo",
+            "ai studio",
+            "antigravity",
+            "nano banana",
+            "gemma",
+            "imagen",
+            "synthid",
+            "lyria",
+            "alphago",
+            "alphazero",
+        ],
     },
     {
         "name": "Microsoft AI",
-        "keywords": ["microsoft", "copilot", "satya nadella", "azure ai"],
+        "keywords": [
+            "microsoft",
+            "copilot",
+            "satya nadella",
+            "azure ai",
+            "phi",
+            "foundry",
+            "aurora",
+            "magma",
+            "muse",
+            "autogen",
+        ],
     },
-    {"name": "Anthropic", "keywords": ["anthropic", "claude", "dario amodei"]},
-    {"name": "NVIDIA", "keywords": ["nvidia", "jensen huang", "gpu", "blackwell"]},
+    {
+        "name": "Anthropic",
+        "keywords": [
+            "anthropic",
+            "claude",
+            "dario amodei",
+            "opus",
+            "sonnet",
+            "haiku",
+        ],
+    },
+    {
+        "name": "NVIDIA",
+        "keywords": [
+            "nvidia",
+            "jensen huang",
+            "gpu",
+            "blackwell",
+            "omniverse",
+            "dgx",
+            "hgx",
+            "igx",
+            "ovx",
+            "geforce",
+            "nemo",
+            "nim",
+            "dynamo",
+            "metropolis",
+            "cosmos",
+            "isaac groot",
+            "clara",
+            "nemotron",
+        ],
+    },
     {
         "name": "Meta AI",
-        "keywords": ["meta ai", "llama", "mark zuckerberg", "facebook ai"],
+        "keywords": [
+            "meta ai",
+            "llama",
+            "mark zuckerberg",
+            "facebook ai",
+            "sam",
+            "dino",
+            "meta segment",
+            "meta",
+            "v-jepa",
+            "llama",
+        ],
     },
-    {"name": "xAI", "keywords": ["xai", "grok", "elon musk"]},
+    {"name": "xAI", "keywords": ["xai", "grok", "elon musk", "colossus"]},
     {
         "name": "Apple",
-        "keywords": ["apple intelligence", "siri", "tim cook", "apple ai"],
+        "keywords": [
+            "apple intelligence",
+            "siri",
+            "tim cook",
+            "apple ai",
+            "amar subramanya",
+        ],
     },
     {
         "name": "DeepSeek",
@@ -73,6 +158,9 @@ TARGET_COMPANIES: List[TargetCompany] = [
             "deepseek-coder",
             "deepseek-r1",
             "deepseekmoe",
+            "liang wengfeng",
+            "wengfeng liang",
+            "high-flyer",
         ],
     },
     {
@@ -80,8 +168,17 @@ TARGET_COMPANIES: List[TargetCompany] = [
         "keywords": [
             "mistral",
             "mistral large",
+            "mistral medium",
+            "mistral family",
+            "mistral small",
+            "nemo",
+            "ministral",
+            "voxtral",
+            "document ai",
             "le chat",
             "arthur mensch",
+            "guillaume lample",
+            "timothee lacroix",
             "mixtral",
             "codestral",
             "magistral",
@@ -90,11 +187,118 @@ TARGET_COMPANIES: List[TargetCompany] = [
     {
         "name": "Perplexity",
         "keywords": [
-            "perplexity ai",
+            "perplexity",
             "aravind srinivas",
+            "denis yarats",
+            "johnny ho",
+            "andy konwinski",
             "perplexity sonar",
             "sonar-pro",
+            "comet",
             "pplx-api",
+        ],
+    },
+    {
+        "name": "Black Forest Labs",
+        "keywords": [
+            "black forest labs",
+            "flux.1",
+            "flux model",
+            "flux.2",
+            "flux",
+            "robin rombach",
+            "andreas blattmann",
+            "axel sauer",
+            "patrick esser",
+            "image generation",
+        ],
+    },
+    {
+        "name": "LangChain",
+        "keywords": [
+            "langchain",
+            "langgraph",
+            "langsmith",
+            "harrison chase",
+            "llm orchestration",
+            "ai agents",
+            "ankush gola",
+            "jacob lee",
+            "deep agents",
+        ],
+    },
+    {
+        "name": "Helsing",
+        "keywords": [
+            "helsing",
+            "defense ai",
+            "torsten reil",
+            "gundbert scherf",
+            "niklas köhler",
+            "daniel ek",
+            "software-defined defence",
+            "hx-2",
+            "hf-1",
+            "sg-1",
+            "fathom",
+            "ca-1",
+            "cirra",
+            "centaur",
+            "lura",
+            "altra",
+        ],
+    },
+    {
+        "name": "Celonis",
+        "keywords": [
+            "celonis",
+            "alex rinke",
+            "bastian nominacher",
+            "martin klenk",
+            "process mining",
+            "execution management",
+            "process intelligence",
+            "enterprise ai",
+        ],
+    },
+    {
+        "name": "DeepL",
+        "keywords": [
+            "deepl",
+            "jarek kutylowski",
+            "ai translation",
+            "deepl write",
+            "deepl agent",
+            "neural machine translation",
+        ],
+    },
+    {
+        "name": "Aleph Alpha",
+        "keywords": [
+            "aleph alpha",
+            "jonas andrulis",
+            "reto spörri",
+            "samuel weinbach",
+            "luminous",
+            "pharia",
+            "dora",
+            "govtech",
+            "sovereign ai",
+            "industrial llm",
+            "heidelberg ai",
+        ],
+    },
+    {
+        "name": "Oracle",
+        "keywords": [
+            "oracle",
+            "larry ellison",
+            "oci",
+            "cohere",
+            "heatwave",
+            "oracle database 23ai",
+            "safra catz",
+            "ai vector search",
         ],
     },
 ]
@@ -302,55 +506,156 @@ def monitor_news(state: AgentState):
     return {"raw_news": results, "seen_urls": new_urls, "steps": 1}
 
 
+# --- ADD THESE IMPORTS AT THE TOP OF YOUR FILE ---
+from playwright.sync_api import sync_playwright
+import trafilatura
+import time
+
+
+# --- HELPER: Manual Stealth Logic ---
+def apply_stealth(page):
+    """
+    Manually injects JavaScript to hide automation signals.
+    Identical to what playwright-stealth does, but dependency-free.
+    """
+    # 1. Mask the 'navigator.webdriver' property
+    page.add_init_script(
+        """
+        Object.defineProperty(navigator, 'webdriver', {
+            get: () => undefined
+        });
+    """
+    )
+    # 2. Mock 'chrome' object
+    page.add_init_script(
+        """
+        window.chrome = {
+            runtime: {}
+        };
+    """
+    )
+    # 3. Mock Plugins
+    page.add_init_script(
+        """
+        Object.defineProperty(navigator, 'plugins', {
+            get: () => [1, 2, 3, 4, 5]
+        });
+    """
+    )
+    # 4. Mock Languages
+    page.add_init_script(
+        """
+        Object.defineProperty(navigator, 'languages', {
+            get: () => ['en-US', 'en']
+        });
+    """
+    )
+
+
+# --- MAIN SCRAPER NODE ---
 def scraper_node(state: AgentState):
     """
-    Node 1.5: The Reader (FireCrawl).
-    Takes URLs found in Step 1 and scrapes full content for better accuracy.
+    Node 1.5: The Stealth Hybrid Reader.
+    Strategy:
+    1. Try fast static scrape (Trafilatura).
+    2. If that fails/blocks, launch Stealth Headless Browser (Playwright).
     """
-    print(f"\n--- [Step 1.5] Scraping Full Articles with FireCrawl ---")
+    print(f"\n--- [Step 1.5] Scraping Full Articles (Stealth Hybrid) ---")
 
-    if not FIRECRAWL_API_KEY:
-        print("⚠️ FireCrawl API Key missing. Skipping scraping step.")
-        return {}  # Pass through if no key
-
-    app = Firecrawl(api_key=FIRECRAWL_API_KEY)
-
-    # Get the new URLs found in the previous step
     urls_to_scrape = state.get("seen_urls", [])
 
-    # Safety limit: Don't scrape too many if the monitor found a ton
-    if len(urls_to_scrape) > 10:
-        print(
-            f"   (Limiting scrape to first 10 of {len(urls_to_scrape)} URLs to save time)"
-        )
-        urls_to_scrape = urls_to_scrape[:10]
+    # Safety limit
+    if len(urls_to_scrape) > 20:
+        print(f"   (Limiting scrape to first 20 of {len(urls_to_scrape)} URLs)")
+        urls_to_scrape = urls_to_scrape[:20]
 
     scraped_content = []
 
     for url in urls_to_scrape:
         print(f"   -> Scraping: {url}")
+        content = None
+
+        # --- ATTEMPT 1: Fast Static Scrape ---
         try:
-            # Scrape into clean markdown
-            scrape_result = app.scrape(url, formats=["markdown"])
-            markdown_text = scrape_result.markdown
+            downloaded = trafilatura.fetch_url(url)
+            if downloaded:
+                content = trafilatura.extract(
+                    downloaded,
+                    output_format="markdown",
+                    include_links=True,
+                    include_images=False,
+                )
+        except Exception:
+            pass
 
-            # Truncate very long articles (20k chars is approx 5k tokens)
-            if len(markdown_text) > 20000:
-                markdown_text = markdown_text[:20000] + "... [TRUNCATED]"
+        # Check for failure or "Anti-Bot" messages
+        is_blocked = False
+        if content:
+            if "Cloudflare Ray ID" in content or "security service" in content:
+                is_blocked = True
 
-            # We append this to 'raw_news'. The Editor will see both the snippets (from Step 1)
-            # and these full articles. It will prioritize the detailed content.
-            scraped_content.append(
-                f"FULL ARTICLE CONTENT ({url}):\n{markdown_text}\n---\n"
-            )
+        # If empty, too short, or explicitly blocked... switch to Stealth Mode
+        if not content or len(content) < 600 or is_blocked:
+            print("      x Static scrape failed/blocked. Launching Stealth Browser...")
 
-            # Be polite to the API
-            time.sleep(1)
+            # --- ATTEMPT 2: Stealth Browser ---
+            try:
+                with sync_playwright() as p:
+                    # 1. Launch with anti-bot flags
+                    browser = p.chromium.launch(
+                        headless=True,
+                        args=["--disable-blink-features=AutomationControlled"],
+                    )
 
-        except Exception as e:
-            print(f"      x Failed to scrape {url}: {e}")
+                    # 2. Use realistic context
+                    context = browser.new_context(
+                        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                        locale="en-US",
+                        timezone_id="America/New_York",
+                    )
+                    page = context.new_page()
 
-    # If we found nothing, return empty dict so we don't break the graph
+                    # 3. Apply Stealth Scripts
+                    apply_stealth(page)
+
+                    # 4. Navigate & Wait
+                    try:
+                        page.goto(url, wait_until="domcontentloaded", timeout=25000)
+
+                        # Wait for Cloudflare/JS to verify us
+                        page.wait_for_timeout(5000)
+
+                        # Scroll to load dynamic content
+                        for _ in range(3):
+                            page.mouse.wheel(0, 3000)
+                            page.wait_for_timeout(1500)
+
+                    except Exception as e:
+                        print(f"      x Browser timeout: {e}")
+
+                    html = page.content()
+                    browser.close()
+
+                    # Extract from the rendered HTML
+                    content = trafilatura.extract(
+                        html,
+                        output_format="markdown",
+                        include_links=True,
+                        include_images=False,
+                    )
+            except Exception as e:
+                print(f"      x Browser failed: {e}")
+
+        # --- FINAL PROCESSING ---
+        if content and "Cloudflare Ray ID" not in content:
+            if len(content) > 20000:
+                content = content[:20000] + "... [TRUNCATED]"
+
+            scraped_content.append(f"FULL ARTICLE CONTENT ({url}):\n{content}\n---\n")
+            print(f"      ✅ Success: {len(content)} chars")
+        else:
+            print(f"      x Failed to extract meaningful content from {url}")
+
     if not scraped_content:
         return {}
 
