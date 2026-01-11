@@ -1,37 +1,46 @@
 import time
+import re
 import datetime
 from dateutil import parser as date_parser
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from app.state import AgentState
 from app.config import CONFIG, TARGET_COMPANIES, BLACKLIST_DOMAINS
-from app.services.search import tavily_news, tavily_general
+from app.services.search import tavily_news
 from app.services.scraper import scrape_url
-from app.services.llm import research_decider, newsletter_generator, article_summarizer
-from app.schemas import Newsletter, ResearchDecision
+from app.services.llm import newsletter_generator, article_summarizer
+from app.agent.prompts import ANALYSIS_SYSTEM_PROMPT, get_editor_prompt
 
 
 def monitor_news(state: AgentState):
     """
-    Node 1: Entity Monitor.
+    Node 1: News Analyst.
     Searches for latest news about the specific companies.
     """
-    print(f"\n--- [Step 1] Monitoring {len(TARGET_COMPANIES)} Companies ---")
+    print(f"\n [Step 1] Monitoring {len(TARGET_COMPANIES)} Companies")
     results = []
     new_urls = []
-    existing_urls = set(state.get("seen_urls", []))
+    existing_urls = set(state.get("seen_urls", []))  # do not search existing urls again
     cutoff_date = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
         days=CONFIG["days_back"]
     )
+    cutoff_date_str = cutoff_date.strftime("%Y-%m-%d")  # cutoff for tavily
+    cutoff_date = cutoff_date - datetime.timedelta(
+        days=1
+    )  # manual cutoff with one day puffer to account for timezone differences
 
     for target in TARGET_COMPANIES:
         company = target["name"]
         keywords = target["keywords"]
-        query = f'"{company}" AI latest news announcement launch'
+        query = (
+            f'"{company}" AI model release funding partnership announcement benchmark'
+        )
         print(f"   -> Checking: {company}...")
 
         try:
-            response = tavily_news.invoke({"query": query})
+            response = tavily_news.invoke(
+                {"query": query, "start_date": cutoff_date_str}
+            )
             hits = (
                 response.get("results", []) if isinstance(response, dict) else response
             )
@@ -41,13 +50,14 @@ def monitor_news(state: AgentState):
                     url = item.get("url", "")
                     pub_date_str = item.get("published_date", None)
 
-                    # Deduplication & Spam Check
-                    if url in existing_urls or any(
-                        bad in url for bad in BLACKLIST_DOMAINS
-                    ):
+                    # Deduplication & Blacklist Check
+                    if url in existing_urls:
+                        print(f"{url} already visited!")
+                    elif any(bad in url for bad in BLACKLIST_DOMAINS):
+                        print(f"{url} in blacklist!")
                         continue
 
-                    # Strict Date Filtering
+                    # Manual Date Filtering
                     if pub_date_str:
                         try:
                             pub_date = date_parser.parse(pub_date_str)
@@ -56,19 +66,31 @@ def monitor_news(state: AgentState):
                                     tzinfo=datetime.timezone.utc
                                 )
                             if pub_date < cutoff_date:
+                                print(f"{url} is too old!")
                                 continue
-                        except Exception:
+                        except Exception as e:
+                            print(f"Error: {e}")
                             pass
 
-                    # Keyword Validation
+                    # Keyword Validation, so we filter out any articles that only mention the company in a sub clause
                     content = item.get("content", "")
                     title = item.get("title", "")
                     full_text = (title + " " + content).lower()
 
                     if any(k.lower() in full_text for k in keywords):
-                        results.append(f"[{company}] DETAIL: {content} (Source: {url})")
+                        date_str = (
+                            pub_date.strftime("%Y-%m-%d")
+                            if pub_date_str
+                            else "Unknown Date"
+                        )
+                        results.append(
+                            f"[{company}] DATE: {date_str} | URL: {url} | TITLE: {title}"
+                        )
                         new_urls.append(url)
                         existing_urls.add(url)
+
+            else:
+                print(f"Whopsie hits: {hits}")
 
             time.sleep(CONFIG["rate_limit_delay"])
 
@@ -78,14 +100,26 @@ def monitor_news(state: AgentState):
     if not results:
         results = ["No significant news found for any target company."]
 
-    return {"raw_news": results, "seen_urls": new_urls, "steps": 1}
+    return {"search_results": results, "seen_urls": new_urls, "steps": 1}
 
 
 def scraper_node(state: AgentState):
     """
-    Node 1.5: The Stealth Hybrid Reader.
+    Node 2: The Stealth Hybrid Reader.
     """
-    print(f"\n--- [Step 1.5] Scraping Full Articles ---")
+    print(f"\n--- [Step 2] Scraping Full Articles ---")
+    url_to_date = {}
+    for res in state.get("search_results", []):
+        # Extract URL and Date from string format
+        # Expected format: "[Company] DATE: 2026-01-11 | URL: https://... | TITLE: ..."
+        try:
+            parts = res.split("|")
+            print(f"   Debug Scraper Parsing: {parts}")
+            date_part = parts[0].split("DATE:")[1].strip()
+            url_part = parts[1].split("URL:")[1].strip()
+            url_to_date[url_part] = date_part
+        except:
+            continue
     urls_to_scrape = state.get("seen_urls", [])
 
     # Safety limit
@@ -97,148 +131,144 @@ def scraper_node(state: AgentState):
     for url in urls_to_scrape:
         content = scrape_url(url)
         if content:
-            scraped_content.append(content)
-            print(f"      ✅ Success: {len(content)} chars")
+            # Re-attach the date to the scraped content
+            date_str = url_to_date.get(url, "Unknown Date")
+
+            # Prepend a clear header for the Summarizer
+            full_text = (
+                f"METADATA_DATE: {date_str}\n"  # <--- The LLM needs this anchor!
+                f"METADATA_URL: {url}\n"
+                f"FULL ARTICLE CONTENT:\n{content}"
+            )
+            scraped_content.append(full_text)
+            print(f"      Scraped {date_str}: {len(content)} chars")
         else:
-            print(f"      x Failed/Blocked: {url}")
+            print(f"      Failed: {url}")
 
-    if not scraped_content:
-        return {}
-
-    return {"raw_news": scraped_content}
+    return {"scraped_articles": scraped_content}
 
 
 def summarize_node(state: dict):
     """
-    Takes a SINGLE article content (from the Send API),
-    summarizes it, and returns it to the global state.
+    Summarizes a single article.
     """
     content = state.get("content", "")
 
-    # 1. Summarize
+    # Parse Metadata (URL & Date)
+    # We look for the headers we prepared in the scraper_node
+    url_match = re.search(r"METADATA_URL: (.*?)\n", content)
+    date_match = re.search(r"METADATA_DATE: (.*?)\n", content)
+
+    original_url = url_match.group(1).strip() if url_match else "Source Unknown"
+    article_date = date_match.group(1).strip() if date_match else "Unknown Date"
+
+    print(f"   [Summarizer] Processing: {original_url} (Date: {article_date})")
+
+    # Prepare System Prompt
+    system_msg = SystemMessage(content=ANALYSIS_SYSTEM_PROMPT)
+
     try:
+        # Invoke LLM
+        # Pass the full content (headers included) so the LLM sees the Date Anchor.
         summary_obj = article_summarizer.invoke(
-            f"Analyze this text and extract key facts. If it's not relevant to AI, give a low score.\n\nTEXT: {content}"
+            [system_msg, HumanMessage(content=f"Analyze this text:\n{content}")]
         )
 
-        # 2. Filter Low Quality
+        # Relevance Filter
         if summary_obj.relevance_score < 4:
-            return {"summaries": []}  # Skip irrelevant articles
+            print(f"      x Low Score ({summary_obj.relevance_score}): {original_url}")
+            return {"summaries": []}
 
-        # 3. Format for the Editor
+        # Format Output
+        # Attach the URL here so the Editor sees it clearly
         formatted = (
             f"SOURCE: {summary_obj.title}\n"
+            f"PRIMARY: {summary_obj.primary_company}\n"
+            f"URL: {original_url}\n"
             f"FACTS:\n" + "\n".join([f"- {pt}" for pt in summary_obj.key_points]) + "\n"
         )
         return {"summaries": [formatted]}
 
     except Exception as e:
-        print(f"Summary failed: {e}")
+        print(f"Summary failed for {original_url}: {e}")
         return {"summaries": []}
-
-
-def opinion_researcher(state: AgentState):
-    """
-    Node 2: Opinion Researcher.
-
-    Analyzes the distilled news summaries to identify stories that are controversial,
-    highly technical, or significant enough to warrant checking community discussions
-    (Reddit, Hacker News). If a topic is found, it performs a targeted search.
-    """
-    print("\n--- [Step 2] Researching Community Opinions ---")
-
-    # Prioritize using the clean summaries; fallback to raw news if the map step produced no output
-    context = "\n".join(state.get("summaries", [])) or "\n".join(state["raw_news"])
-
-    prompt = f"""
-    Analyze these news summaries:
-    {context}
-    
-    Is there a specific story that is controversial, highly technical, 
-    or major industry news that warrants checking Reddit/Hacker News?
-    """
-
-    decision = research_decider.invoke(prompt)
-
-    if not decision.should_research:
-        return {"opinions": ["No major controversy found."], "steps": 1}
-
-    print(f"   -> Deep diving into: '{decision.search_query}'")
-
-    try:
-        response = tavily_general.invoke(
-            {"query": decision.search_query + " reddit hacker news discussion"}
-        )
-        opinion_notes = []
-        hits = response.get("results", []) if isinstance(response, dict) else response
-        for hit in hits:
-            opinion_notes.append(
-                f"OPINION: {hit.get('content','')[:200]} ({hit.get('url')})"
-            )
-        return {"opinions": opinion_notes, "steps": 1}
-    except Exception:
-        return {"opinions": [], "steps": 1}
 
 
 def editor_writer(state: AgentState):
     """
     Node 3: Editor-in-Chief.
-
-    Synthesizes the final newsletter report.
-    CRITICAL: This node restores the rich formatting instructions to ensure
-    the output is not just a list of facts, but a readable narrative.
-    """
-    print("\n--- [Step 3] Synthesizing Final Report ---")
+    Synthesizes the final newsletter report."""
+    print("\n [Step 3] Synthesizing Final Report")
     today = datetime.datetime.now().strftime("%B %d, %Y")
-    allowed_companies = ", ".join([t["name"] for t in TARGET_COMPANIES])
 
-    system_prompt = (
-        f"You are the Editor-in-Chief of 'The Daily AI'. Today is {today}.\n"
-        "Your goal: Write a comprehensive, high-signal market report.\n\n"
-        "**SCOPE ENFORCEMENT**:\n"
-        f"- You are ONLY allowed to report on these companies: **{allowed_companies}**.\n"
-        "- If the provided summaries mention other companies, IGNORE them.\n\n"
-        "**TONE & STYLE**:\n"
-        "- Professional, concise, and dense with information.\n"
-        "- No fluff. No 'In the world of AI...'. Start directly with the news.\n\n"
-        "**STRUCTURE REQUIREMENTS**:\n"
-        "1. **EXECUTIVE SUMMARY**:\n"
-        "   - Create a bulleted list.\n"
-        "   - Exactly ONE bullet point per company that has significant news.\n"
-        "2. **DETAILED COMPANY REPORTS**:\n"
-        "   - Create a subsection for each company.\n"
-        "   - Write a detailed paragraph analyzing their latest news.\n"
-        "   - Use specific stats, prices, and names from the summaries.\n"
-        "   **CITATION RULE (CRITICAL)**:\n"
-        "   - You MUST cite your sources immediately after the claim.\n"
-        "   - Format: `Sentence goes here ([Source Name](url)).`\n"
-        "3. **COMMUNITY PULSE**:\n"
-        "   - Summarize the external opinions section.\n"
+    # Get List of Target Names for strict matching
+    target_names = [t["name"] for t in TARGET_COMPANIES]
+
+    # Group Summaries
+    grouped_content = {name: [] for name in target_names}
+    unknown_bucket = []
+
+    print("\n   [DEBUG] Grouping Articles:")
+
+    for summary_str in state.get("summaries", []):
+        # Extract Primary Company Tag
+        primary_match = re.search(r"PRIMARY: (.*?)\n", summary_str)
+        primary_entity = primary_match.group(1).strip() if primary_match else "Unknown"
+
+        print(
+            f"   - Entity: '{primary_entity}' | Title: {summary_str.split('\n')[0][8:40]}..."
+        )
+
+        # Assign to Bucket
+        found_bucket = False
+        for name in target_names:
+            # Match if the Primary Entity string *contains* the target name
+            # e.g. "Microsoft AI" contains "Microsoft"
+            if name.lower() in primary_entity.lower():
+                grouped_content[name].append(summary_str)
+                found_bucket = True
+                break
+            else:
+                print(f'     x "{primary_entity}" does not match "{name}"')
+
+        if not found_bucket:
+            unknown_bucket.append(summary_str)
+
+    # Construct String Input
+    structured_news_input = ""
+    for company, items in grouped_content.items():
+        if items:
+            structured_news_input += f"\n### NEWS FOR {company.upper()} ###\n"
+            structured_news_input += "\n".join(items) + "\n"
+
+    if unknown_bucket:
+        structured_news_input += "\n### OTHER INDUSTRY NEWS ###\n"
+        structured_news_input += "\n".join(unknown_bucket)
+
+    # Generate Prompt using the helper from prompts.py
+    system_prompt_str = get_editor_prompt(today, target_names)
+
+    user_message = f"GROUPED NEWS:\n{structured_news_input}\n"
+
+    # Invoke Editor
+    newsletter = newsletter_generator.invoke(
+        [SystemMessage(content=system_prompt_str), HumanMessage(content=user_message)]
     )
 
-    # We combine the "Map" outputs (Summaries) and "Researcher" outputs (Opinions)
-    user_message = (
-        f"SUMMARIZED NEWS:\n{'\n'.join(state['summaries'])}\n\n"
-        f"COMMUNITY OPINIONS:\n{'\n'.join(state['opinions'])}"
-    )
-
-    newsletter: Newsletter = newsletter_generator.invoke(
-        [SystemMessage(content=system_prompt), HumanMessage(content=user_message)]
-    )
-
-    # Format output as Markdown
+    # Formatting to Markdown
     final_md = f"# THE DAILY AI | Market Report\n**{today}**\n\n---\n\n## EXECUTIVE SUMMARY\n\n"
     for item in newsletter.executive_summary:
         final_md += f"- {item}\n"
 
     final_md += "\n---\n\n## DETAILED COMPANY REPORTS\n\n"
     for report in newsletter.company_reports:
-        if "no significant news" in report.update.lower() or len(report.update) < 50:
-            continue
-        final_md += f"### {report.name}\n\n{report.update}\n\n"
+        # Filter out empty or "no news" sections
+        if (
+            len(report.update) > 50
+            and "no significant news" not in report.update.lower()
+        ):
+            final_md += f"### {report.name}\n\n{report.update}\n\n"
 
-    final_md += "\n---\n\n## COMMUNITY PULSE\n\n"
-    final_md += newsletter.community_pulse
     final_md += "\n\n---\n**Report compiled by The Daily AI Editorial Team**"
 
     return {"final_report": final_md}
