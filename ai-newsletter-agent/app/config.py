@@ -7,9 +7,10 @@ load_dotenv()
 
 # --- General Configuration ---
 CONFIG = {
-    "days_back": 1,
+    "days_back": 7,
     "max_search_results": 5,
     "rate_limit_delay": 2.0,
+    "search_depth": "basic",
 }
 
 # --- Email Settings ---
@@ -66,6 +67,7 @@ TARGET_COMPANIES: List[TargetCompany] = [
             "deepmind",
             "gemini",
             "google ai",
+            "google",
             "demis hassabis",
             "veo",
             "ai studio",
@@ -151,6 +153,7 @@ TARGET_COMPANIES: List[TargetCompany] = [
             "siri",
             "tim cook",
             "apple ai",
+            "apple",
             "amar subramanya",
         ],
     },
