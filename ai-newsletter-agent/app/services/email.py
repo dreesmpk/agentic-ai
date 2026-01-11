@@ -18,10 +18,10 @@ def send_email(report_md: str):
     Sends the Markdown report as an HTML email using SMTP.
     """
     if not SMTP_USERNAME or not EMAIL_PASSWORD or not EMAIL_RECIPIENT:
-        print("⚠️  Email credentials missing. Skipping email send.")
+        print("Email credentials missing. Skipping email send.")
         return
 
-    print(f"\n📧 Sending email to {EMAIL_RECIPIENT} via {SMTP_SERVER}...")
+    print(f"\n Sending email to {EMAIL_RECIPIENT} via {SMTP_SERVER}...")
 
     try:
         html_content = markdown.markdown(report_md)
@@ -37,7 +37,7 @@ def send_email(report_md: str):
                 </div>
                 <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
                 <p style="font-size: 11px; color: #999; text-align: center;">
-                    Generated automatically by your AI Agent.
+                    Generated automatically by our AI Agent.
                 </p>
             </body>
         </html>
@@ -56,7 +56,7 @@ def send_email(report_md: str):
             server.login(SMTP_USERNAME, EMAIL_PASSWORD)
             server.send_message(msg)
 
-        print("✅ Email sent successfully!")
+        print("Email sent successfully!")
 
     except Exception as e:
-        print(f"❌ Failed to send email: {e}")
+        print(f"Failed to send email: {e}")
