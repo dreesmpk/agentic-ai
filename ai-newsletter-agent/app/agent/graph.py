@@ -6,7 +6,6 @@ from app.agent.nodes import (
     monitor_news,
     scraper_node,
     summarize_node,
-    opinion_researcher,
     editor_writer,
 )
 
@@ -25,7 +24,10 @@ def map_articles_to_summaries(state: AgentState):
     It takes the global state, finds the 'raw_news',
     and returns a list of Send() objects.
     """
-    return [Send("summarizer", {"content": article}) for article in state["raw_news"]]
+    return [
+        Send("summarizer", {"content": article})
+        for article in state["scraped_articles"]
+    ]
 
 
 # Build the Graph
@@ -37,15 +39,13 @@ workflow.add_node(
     "scraper", scraper_node
 )  # Scraper has internal try/except, no graph retry needed
 workflow.add_node("summarizer", summarize_node, retry=retry_policy)
-workflow.add_node("researcher", opinion_researcher, retry=retry_policy)
 workflow.add_node("editor", editor_writer, retry=retry_policy)
 
 # Add Edges
 workflow.add_edge(START, "monitor")
 workflow.add_edge("monitor", "scraper")
 workflow.add_conditional_edges("scraper", map_articles_to_summaries, ["summarizer"])
-workflow.add_edge("summarizer", "researcher")
-workflow.add_edge("researcher", "editor")
+workflow.add_edge("summarizer", "editor")
 workflow.add_edge("editor", END)
 
 # Compile
