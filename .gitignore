@@ -2,3 +2,4 @@
 geheim.txt
 **.env
 **/tests/**
+**__pycache__**
