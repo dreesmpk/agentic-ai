@@ -1,0 +1,308 @@
+import os
+from typing import List, TypedDict
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+
+# --- General Configuration ---
+CONFIG = {
+    "days_back": 1,
+    "max_search_results": 5,
+    "rate_limit_delay": 2.0,
+}
+
+# --- Email Settings ---
+SMTP_SERVER = os.environ.get("SMTP_SERVER")
+SMTP_PORT = int(os.environ.get("SMTP_PORT", 587))
+EMAIL_SENDER = os.environ.get("EMAIL_SENDER")
+EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD")
+EMAIL_RECIPIENT = os.environ.get("EMAIL_RECIPIENT")
+# Fallback to sender if username is not explicitly set
+SMTP_USERNAME = os.environ.get("SMTP_USERNAME") or EMAIL_SENDER
+
+# --- API Keys (Just for validation/reference) ---
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
+TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY")
+
+# --- Model Configurations ---
+MODEL_FAST = os.environ.get("MODEL_FAST", "claude-haiku-4-5-20251001")
+# Using Haiku while Sonnet is unstable or expensive, customizable via env
+MODEL_SMART = os.environ.get("MODEL_SMART", "claude-haiku-4-5-20251001")
+
+# --- Filter Lists ---
+BLACKLIST_DOMAINS = [
+    "ts2.tech",
+    "biztoc.com",
+    "bignewsnetwork.com",
+    "fagenwasanni.com",
+    "crypto.news",
+    "investing.com",
+]
+
+
+# --- Target Companies ---
+class TargetCompany(TypedDict):
+    name: str
+    keywords: List[str]
+
+
+TARGET_COMPANIES: List[TargetCompany] = [
+    {
+        "name": "OpenAI",
+        "keywords": [
+            "openai",
+            "chatgpt",
+            "gpt-",
+            "sam altman",
+            "codex",
+            "sora",
+            "mark chen",
+        ],
+    },
+    {
+        "name": "Google DeepMind",
+        "keywords": [
+            "deepmind",
+            "gemini",
+            "google ai",
+            "demis hassabis",
+            "veo",
+            "ai studio",
+            "antigravity",
+            "nano banana",
+            "gemma",
+            "imagen",
+            "synthid",
+            "lyria",
+            "alphago",
+            "alphazero",
+        ],
+    },
+    {
+        "name": "Microsoft AI",
+        "keywords": [
+            "microsoft",
+            "copilot",
+            "satya nadella",
+            "azure ai",
+            "phi",
+            "foundry",
+            "aurora",
+            "magma",
+            "muse",
+            "autogen",
+        ],
+    },
+    {
+        "name": "Anthropic",
+        "keywords": [
+            "anthropic",
+            "claude",
+            "dario amodei",
+            "opus",
+            "sonnet",
+            "haiku",
+        ],
+    },
+    {
+        "name": "NVIDIA",
+        "keywords": [
+            "nvidia",
+            "jensen huang",
+            "gpu",
+            "blackwell",
+            "omniverse",
+            "dgx",
+            "hgx",
+            "igx",
+            "ovx",
+            "geforce",
+            "nemo",
+            "nim",
+            "dynamo",
+            "metropolis",
+            "cosmos",
+            "isaac groot",
+            "clara",
+            "nemotron",
+        ],
+    },
+    {
+        "name": "Meta AI",
+        "keywords": [
+            "meta ai",
+            "llama",
+            "mark zuckerberg",
+            "facebook ai",
+            "sam",
+            "dino",
+            "meta segment",
+            "meta",
+            "v-jepa",
+            "llama",
+        ],
+    },
+    {"name": "xAI", "keywords": ["xai", "grok", "elon musk", "colossus"]},
+    {
+        "name": "Apple",
+        "keywords": [
+            "apple intelligence",
+            "siri",
+            "tim cook",
+            "apple ai",
+            "amar subramanya",
+        ],
+    },
+    {
+        "name": "DeepSeek",
+        "keywords": [
+            "deepseek",
+            "deepseek-v3",
+            "deepseek-coder",
+            "deepseek-r1",
+            "deepseekmoe",
+            "liang wengfeng",
+            "wengfeng liang",
+            "high-flyer",
+        ],
+    },
+    {
+        "name": "Mistral AI",
+        "keywords": [
+            "mistral",
+            "mistral large",
+            "mistral medium",
+            "mistral family",
+            "mistral small",
+            "nemo",
+            "ministral",
+            "voxtral",
+            "document ai",
+            "le chat",
+            "arthur mensch",
+            "guillaume lample",
+            "timothee lacroix",
+            "mixtral",
+            "codestral",
+            "magistral",
+        ],
+    },
+    {
+        "name": "Perplexity",
+        "keywords": [
+            "perplexity",
+            "aravind srinivas",
+            "denis yarats",
+            "johnny ho",
+            "andy konwinski",
+            "perplexity sonar",
+            "sonar-pro",
+            "comet",
+            "pplx-api",
+        ],
+    },
+    {
+        "name": "Black Forest Labs",
+        "keywords": [
+            "black forest labs",
+            "flux.1",
+            "flux model",
+            "flux.2",
+            "flux",
+            "robin rombach",
+            "andreas blattmann",
+            "axel sauer",
+            "patrick esser",
+            "image generation",
+        ],
+    },
+    {
+        "name": "LangChain",
+        "keywords": [
+            "langchain",
+            "langgraph",
+            "langsmith",
+            "harrison chase",
+            "llm orchestration",
+            "ai agents",
+            "ankush gola",
+            "jacob lee",
+            "deep agents",
+        ],
+    },
+    {
+        "name": "Helsing",
+        "keywords": [
+            "helsing",
+            "defense ai",
+            "torsten reil",
+            "gundbert scherf",
+            "niklas köhler",
+            "daniel ek",
+            "software-defined defence",
+            "hx-2",
+            "hf-1",
+            "sg-1",
+            "fathom",
+            "ca-1",
+            "cirra",
+            "centaur",
+            "lura",
+            "altra",
+        ],
+    },
+    {
+        "name": "Celonis",
+        "keywords": [
+            "celonis",
+            "alex rinke",
+            "bastian nominacher",
+            "martin klenk",
+            "process mining",
+            "execution management",
+            "process intelligence",
+            "enterprise ai",
+        ],
+    },
+    {
+        "name": "DeepL",
+        "keywords": [
+            "deepl",
+            "jarek kutylowski",
+            "ai translation",
+            "deepl write",
+            "deepl agent",
+            "neural machine translation",
+        ],
+    },
+    {
+        "name": "Aleph Alpha",
+        "keywords": [
+            "aleph alpha",
+            "jonas andrulis",
+            "reto spörri",
+            "samuel weinbach",
+            "luminous",
+            "pharia",
+            "dora",
+            "govtech",
+            "sovereign ai",
+            "industrial llm",
+            "heidelberg ai",
+        ],
+    },
+    {
+        "name": "Oracle",
+        "keywords": [
+            "oracle",
+            "larry ellison",
+            "oci",
+            "cohere",
+            "heatwave",
+            "oracle database 23ai",
+            "safra catz",
+            "ai vector search",
+        ],
+    },
+]
