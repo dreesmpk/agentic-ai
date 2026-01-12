@@ -190,7 +190,7 @@ async def scraper_node(state: AgentState):
     valid_articles = [r for r in results if r is not None]
 
     print(f"   -> Successfully scraped {len(valid_articles)} articles.")
-    return {"scraped_articles": valid_articles, "steps": 2}
+    return {"scraped_articles": valid_articles, "steps": 1}
 
 
 async def summarize_node(state: AgentState):
@@ -261,7 +261,7 @@ async def summarize_node(state: AgentState):
     valid_summaries = [s for s in summaries if s]
 
     print(f"   -> Generated {len(valid_summaries)} valid summaries.")
-    return {"summaries": valid_summaries, "steps": 3}
+    return {"summaries": valid_summaries, "steps": 1}
 
 
 def editor_writer(state: AgentState):
@@ -334,4 +334,4 @@ def editor_writer(state: AgentState):
 
     final_md += "\n\n---\n**Report compiled by The Daily AI Editorial Team**"
 
-    return {"final_report": final_md, "steps": 4}
+    return {"final_report": final_md, "steps": 1}
