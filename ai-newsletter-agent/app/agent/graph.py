@@ -1,6 +1,6 @@
-from langgraph.graph import StateGraph, END
-from app.agent.nodes import monitor_news, scraper_node, summarize_node, editor_writer
+from app.agent.nodes import (editor_writer, monitor_news, scraper_node, summarize_node)
 from app.state import AgentState
+from langgraph.graph import END, StateGraph
 
 # 1. Define the workflow
 workflow = StateGraph(AgentState)
