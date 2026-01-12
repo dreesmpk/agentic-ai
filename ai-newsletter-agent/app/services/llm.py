@@ -1,7 +1,8 @@
 import os
-from langchain_anthropic import ChatAnthropic
+
 from app.config import MODEL_FAST, MODEL_SMART
-from app.schemas import Newsletter, ResearchDecision, ArticleSummary
+from app.schemas import ArticleSummary, Newsletter
+from langchain_anthropic import ChatAnthropic
 
 # Check keys strictly before initializing
 if not os.environ.get("ANTHROPIC_API_KEY"):
@@ -10,7 +11,7 @@ if not os.environ.get("ANTHROPIC_API_KEY"):
 # Initialize Models
 # max_retries=3 handles internal API errors (500s) automatically
 llm_fast = ChatAnthropic(model=MODEL_FAST, temperature=0, max_retries=3)
-llm_smart = ChatAnthropic(model=MODEL_SMART, temperature=0, max_retries=3)
+llm_smart = ChatAnthropic(model=MODEL_SMART, temperature=0.3, max_retries=3)
 
 # Bind Structured Outputs
 # This creates callable objects that return Pydantic models directly
