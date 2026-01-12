@@ -1,207 +1,274 @@
-import time
-import re
+import asyncio
 import datetime
-from dateutil import parser as date_parser
-from langchain_core.messages import SystemMessage, HumanMessage
+import random
+import re
+import time
 
-from app.state import AgentState
-from app.config import CONFIG, TARGET_COMPANIES, BLACKLIST_DOMAINS
-from app.services.search import tavily_news
-from app.services.scraper import scrape_url
-from app.services.llm import newsletter_generator, article_summarizer
 from app.agent.prompts import get_analysis_prompt, get_editor_prompt
+from app.config import BLACKLIST_DOMAINS, CONFIG, TARGET_COMPANIES
+from app.services.llm import article_summarizer, newsletter_generator
+from app.services.scraper import scrape_url
+from app.services.search import tavily_news
+from app.state import AgentState
+from dateutil import parser as date_parser
+from langchain_core.messages import HumanMessage, SystemMessage
 
 
 def monitor_news(state: AgentState):
     """
     Node 1: News Analyst.
-    Searches for latest news about the specific companies.
+    Searches for latest news on the target companies.
+    Selects strictly the top 2 articles per company at most.
     """
     print(f"\n [Step 1] Monitoring {len(TARGET_COMPANIES)} Companies")
-    results = []
-    new_urls = []
-    existing_urls = set(state.get("seen_urls", []))  # do not search existing urls again
+
+    # 1. Setup & Date Constraints
+    existing_urls = set(state.get("seen_urls", []))
     cutoff_date = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
         days=CONFIG["days_back"]
     )
-    cutoff_date_str = cutoff_date.strftime("%Y-%m-%d")  # cutoff for tavily
-    cutoff_date = cutoff_date - datetime.timedelta(
-        days=1
-    )  # manual cutoff with one day puffer to account for timezone differences
+    cutoff_date_str = cutoff_date.strftime("%Y-%m-%d")
+    cutoff_date = cutoff_date - datetime.timedelta(days=1)
+
+    # 2. Collect ALL candidates first (Bucketed by Company)
+    company_buckets = {t["name"]: [] for t in TARGET_COMPANIES}
+    new_urls = []
 
     for target in TARGET_COMPANIES:
         company = target["name"]
         keywords = target["keywords"]
-        query = (
-            f'"{company}" AI model release funding partnership announcement benchmark'
-        )
         print(f"   -> Checking: {company}...")
-
+        query = f'Latest important news, updates, and AI developments involving "{company}".'
         try:
-            response = tavily_news.invoke(
-                {"query": query, "start_date": cutoff_date_str}
-            )
-            hits = (
-                response.get("results", []) if isinstance(response, dict) else response
-            )
+            response = tavily_news.invoke({"query": query, "start_date": cutoff_date_str})
+            hits = response.get("results", []) if isinstance(response, dict) else response
 
             if isinstance(hits, list):
                 for item in hits:
                     url = item.get("url", "")
                     pub_date_str = item.get("published_date", None)
+                    tavily_score = item.get("score", 0.0)
 
-                    # Deduplication & Blacklist Check
-                    if url in existing_urls:
-                        print(f"{url} already visited!")
-                    elif any(bad in url for bad in BLACKLIST_DOMAINS):
-                        print(f"{url} in blacklist!")
+                    # Quality Gate
+                    if tavily_score < CONFIG["min_search_score"]:
+                        print(f"      x Low Score ({tavily_score:.2f}) Skipping: {url}")
                         continue
 
-                    # Manual Date Filtering
+                    # Deduplication and blacklist check
+                    if url in existing_urls or any(bad in url for bad in BLACKLIST_DOMAINS):
+                        continue
+
+                    # Date Check
+                    pub_date = None
                     if pub_date_str:
                         try:
                             pub_date = date_parser.parse(pub_date_str)
                             if pub_date.tzinfo is None:
-                                pub_date = pub_date.replace(
-                                    tzinfo=datetime.timezone.utc
-                                )
+                                pub_date = pub_date.replace(tzinfo=datetime.timezone.utc)
                             if pub_date < cutoff_date:
-                                print(f"{url} is too old!")
                                 continue
-                        except Exception as e:
-                            print(f"Error: {e}")
+                        except Exception:
                             pass
 
-                    # Keyword Validation, so we filter out any articles that only mention the company in a sub clause
+                    # keyword check
                     content = item.get("content", "")
                     title = item.get("title", "")
                     full_text = (title + " " + content).lower()
+                    if not any(k.lower() in full_text for k in keywords):
+                        continue
 
-                    if any(k.lower() in full_text for k in keywords):
-                        date_str = (
-                            pub_date.strftime("%Y-%m-%d")
-                            if pub_date_str
-                            else "Unknown Date"
-                        )
-                        results.append(
-                            f"[{company}] DATE: {date_str} | URL: {url} | TITLE: {title}"
-                        )
-                        new_urls.append(url)
+                    # Add to Bucket
+                    date_display = pub_date.strftime("%Y-%m-%d") if pub_date else "Unknown Date"
+
+                    hit_data = {
+                        "score": tavily_score,
+                        "date": pub_date
+                        or datetime.datetime.min.replace(tzinfo=datetime.timezone.utc),
+                        "company": company,
+                        "url": url,
+                        "string": f"[{company}] DATE: {date_display} | URL: {url} | TITLE: {title}",
+                    }
+
+                    if not any(h["url"] == url for h in company_buckets[company]):
+                        company_buckets[company].append(hit_data)
                         existing_urls.add(url)
-
+                        new_urls.append(url)
             else:
-                print(f"Whopsie hits: {hits}")
-
-            time.sleep(CONFIG["rate_limit_delay"])
-
+                print(f"      x Unexpected response format for {company}: {response}")
         except Exception as e:
             print(f"      x Error checking {company}: {e}")
 
-    if not results:
-        results = ["No significant news found for any target company."]
+        # Sort by Score then Date
+        company_buckets[company].sort(key=lambda x: (x["score"], x["date"]), reverse=True)
+        time.sleep(CONFIG["rate_limit_delay"])
 
-    return {"search_results": results, "seen_urls": new_urls, "steps": 1}
+    # 3. Select Top 2 articles per company
+    final_results = []
+    # Iterate through every target company (ensures we check every bucket)
+    for company_name in company_buckets:
+        bucket = company_buckets[company_name]
+
+        # Take the top 2 (or less).
+        top_picks = bucket[:2]
+        for hit in top_picks:
+            final_results.append(hit["string"])
+
+    if not final_results:
+        final_results = ["No significant news found for any target company."]
+
+    print(f"\n   -> Selected {len(final_results)} articles (Top 2 per company).")
+    return {"search_results": final_results, "seen_urls": new_urls, "steps": 1}
 
 
-def scraper_node(state: AgentState):
+async def scraper_node(state: AgentState):
     """
-    Node 2: The Stealth Hybrid Reader.
+    Node 2: The Stealth Hybrid Reader (Async + Concurrent).
+    Fetches the content for the selected articles from Step 1 concurrently.
     """
-    print(f"\n--- [Step 2] Scraping Full Articles ---")
+    print(f"\n--- [Step 2] Scraping Full Articles (Concurrent) ---")
+
+    # 1. Parse the search_results List
+    search_results = state.get("search_results", [])
+    urls_to_scrape = []
     url_to_date = {}
-    for res in state.get("search_results", []):
-        # Extract URL and Date from string format
-        # Expected format: "[Company] DATE: 2026-01-11 | URL: https://... | TITLE: ..."
+
+    for res in search_results:
         try:
-            parts = res.split("|")
-            print(f"   Debug Scraper Parsing: {parts}")
-            date_part = parts[0].split("DATE:")[1].strip()
-            url_part = parts[1].split("URL:")[1].strip()
-            url_to_date[url_part] = date_part
-        except:
+            if " | URL: " in res:
+                meta_part, rest = res.split(" | URL: ", 1)
+                date_str = meta_part.split("DATE: ")[1].strip()
+
+                if " | TITLE: " in rest:
+                    url = rest.split(" | TITLE: ")[0].strip()
+                else:
+                    url = rest.strip()
+
+                urls_to_scrape.append(url)
+                url_to_date[url] = date_str
+        except Exception as e:
+            print(f"   x Parsing Error on result: {str(e)}")
             continue
-    urls_to_scrape = state.get("seen_urls", [])
 
-    # Safety limit
-    if len(urls_to_scrape) > 20:
-        print(f"   (Limiting scrape to first 20 of {len(urls_to_scrape)} URLs)")
-        urls_to_scrape = urls_to_scrape[:20]
+    # 2. Safety Limit
+    if len(urls_to_scrape) > 36:
+        print(f"   (Limiting scrape to first 36 of {len(urls_to_scrape)} balanced URLs)")
+        urls_to_scrape = urls_to_scrape[:36]
 
-    scraped_content = []
-    for url in urls_to_scrape:
-        content = scrape_url(url)
-        if content:
-            # Re-attach the date to the scraped content
-            date_str = url_to_date.get(url, "Unknown Date")
+    # 3. Concurrency Control (The Semaphore)
+    semaphore = asyncio.Semaphore(CONFIG.get("max_concurrency", 3))
 
-            # Prepend a clear header for the Summarizer
-            full_text = (
-                f"METADATA_DATE: {date_str}\n"  # <--- The LLM needs this anchor!
-                f"METADATA_URL: {url}\n"
-                f"FULL ARTICLE CONTENT:\n{content}"
-            )
-            scraped_content.append(full_text)
-            print(f"      Scraped {date_str}: {len(content)} chars")
-        else:
-            print(f"      Failed: {url}")
+    async def scrape_one(url):
+        async with semaphore:
+            # Add a small random delay to stagger browser launches (Stealth)
+            await asyncio.sleep(random.uniform(0.5, 2.0))
 
-    return {"scraped_articles": scraped_content}
+            try:
+                # Call the async scrape_url function directly
+                content = await scrape_url(url)
+
+                if content:
+                    # Re-attach the date
+                    date_str = url_to_date.get(url, "Unknown Date")
+
+                    full_text = f"METADATA_DATE: {date_str}\n" f"METADATA_URL: {url}\n" f"{content}"
+                    # Use string slicing to keep logs clean
+                    print(f"      > Scraped: {url[:40]}... ({len(content)} chars)")
+                    return full_text
+                else:
+                    print(f"      x Failed to scrape: {url[:40]}...")
+                    return None
+
+            except Exception as e:
+                print(f"      x Error processing {url[:40]}... : {e}")
+                return None
+
+    # 4. Launch Tasks concurrently
+    tasks = [scrape_one(url) for url in urls_to_scrape]
+    results = await asyncio.gather(*tasks)
+
+    # 5. Filter out failures (None)
+    valid_articles = [r for r in results if r is not None]
+
+    print(f"   -> Successfully scraped {len(valid_articles)} articles.")
+    return {"scraped_articles": valid_articles, "steps": 2}
 
 
-def summarize_node(state: dict):
+async def summarize_node(state: AgentState):
     """
-    Summarizes a single article.
+    Node 3: The Summarizer (Throttled).
+    Uses 'article_summarizer' (Pydantic) to extract structured data,
+    then converts it to a string for the Editor.
     """
-    content = state.get("content", "")
+    scraped_content = state.get("scraped_articles", [])
+    print(f"\n--- [Step 3] Summarizing {len(scraped_content)} Articles ---")
 
-    # Parse Metadata (URL & Date)
-    # We look for the headers we prepared in the scraper_node
-    url_match = re.search(r"METADATA_URL: (.*?)\n", content)
-    date_match = re.search(r"METADATA_DATE: (.*?)\n", content)
-
-    original_url = url_match.group(1).strip() if url_match else "Source Unknown"
-    article_date = date_match.group(1).strip() if date_match else "Unknown Date"
-
-    print(f"   [Summarizer] Processing: {original_url} (Date: {article_date})")
-
+    # 1. Define the Semaphore (The Bouncer)
+    # This limits concurrent API calls to prevent 429 errors.
+    semaphore = asyncio.Semaphore(CONFIG.get("max_concurrency", 3))
     target_names = [t["name"] for t in TARGET_COMPANIES]
 
-    system_prompt_str = get_analysis_prompt(target_names)
+    async def summarize_one(text, index):
+        """
+        Summarizes a single article.
 
-    system_msg = SystemMessage(content=system_prompt_str)
+        :param text: Article text to summarize
+        :param index: Index for logging
+        :return: Formatted summary string or None on failure
+        """
+        async with semaphore:
+            try:
+                date_match = re.search(r"METADATA_DATE: (.*?)\n", text)
+                url_match = re.search(r"METADATA_URL: (.*?)\n", text)
 
-    try:
-        # Invoke LLM
-        # Pass the full content (headers included) so the LLM sees the Date Anchor.
-        summary_obj = article_summarizer.invoke(
-            [system_msg, HumanMessage(content=f"Analyze this text:\n{content}")]
-        )
+                meta_date = date_match.group(1).strip() if date_match else "Unknown Date"
+                meta_url = url_match.group(1).strip() if url_match else "Unknown URL"
+                # Stagger requests slightly to avoid a "thundering herd"
+                await asyncio.sleep(0.5 + (index * 0.1))
+                system_instruction = get_analysis_prompt(target_names)
+                # 2. Invoke the LLM (Returns ArticleSummary Object)
+                result = await article_summarizer.ainvoke(
+                    [
+                        SystemMessage(content=system_instruction),
+                        HumanMessage(content=f"Article Content:\n{text}"),
+                    ]
+                )
 
-        # Relevance Filter
-        if summary_obj.relevance_score < 4:
-            print(f"      x Low Score ({summary_obj.relevance_score}): {original_url}")
-            return {"summaries": []}
+                # 3. Handle the Pydantic Object
+                # Join bullet points into a string
+                points_str = "\n- ".join(result.key_points)
 
-        # Format Output
-        # Attach the URL here so the Editor sees it clearly
-        formatted = (
-            f"SOURCE: {summary_obj.title}\n"
-            f"PRIMARY: {summary_obj.primary_company}\n"
-            f"URL: {original_url}\n"
-            f"FACTS:\n" + "\n".join([f"- {pt}" for pt in summary_obj.key_points]) + "\n"
-        )
-        return {"summaries": [formatted]}
+                formatted_summary = (
+                    f"Title: {result.title}\n"
+                    f"Entity: {result.primary_company}\n"
+                    f"Relevance: {result.relevance_score}\n"
+                    f"Key Points:\n- {points_str}\n"
+                    f"Date: {meta_date}\n"
+                    f"Source: {meta_url}"
+                )
 
-    except Exception as e:
-        print(f"Summary failed for {original_url}: {e}")
-        return {"summaries": []}
+                return formatted_summary
+
+            except Exception as e:
+                # Log specific error but don't crash the whole batch
+                print(f"      x Error summarizing article {index}: {e}")
+                return None
+
+    # 4. Create and Run Tasks
+    tasks = [summarize_one(text, i) for i, text in enumerate(scraped_content)]
+    summaries = await asyncio.gather(*tasks)
+
+    # 5. Filter out failures (None)
+    valid_summaries = [s for s in summaries if s]
+
+    print(f"   -> Generated {len(valid_summaries)} valid summaries.")
+    return {"summaries": valid_summaries, "steps": 3}
 
 
 def editor_writer(state: AgentState):
     """
-    Node 3: Editor-in-Chief.
+    Node 4: Editor-in-Chief.
     Synthesizes the final newsletter report."""
-    print("\n [Step 3] Synthesizing Final Report")
+    print("\n [Step 4] Synthesizing Final Report")
     today = datetime.datetime.now().strftime("%B %d, %Y")
 
     # Get List of Target Names for strict matching
@@ -215,12 +282,10 @@ def editor_writer(state: AgentState):
 
     for summary_str in state.get("summaries", []):
         # Extract Primary Company Tag
-        primary_match = re.search(r"PRIMARY: (.*?)\n", summary_str)
+        primary_match = re.search(r"Entity: (.*?)\n", summary_str)
         primary_entity = primary_match.group(1).strip() if primary_match else "Unknown"
 
-        print(
-            f"   - Entity: '{primary_entity}' | Title: {summary_str.split('\n')[0][8:40]}..."
-        )
+        print(f"   - Entity: '{primary_entity}' | Title: {summary_str.split('\n')[0][7:]}...")
 
         # Assign to Bucket
         found_bucket = False
@@ -231,8 +296,6 @@ def editor_writer(state: AgentState):
                 grouped_content[name].append(summary_str)
                 found_bucket = True
                 break
-            else:
-                print(f'     x "{primary_entity}" does not match "{name}"')
 
         if not found_bucket:
             unknown_bucket.append(summary_str)
@@ -266,12 +329,9 @@ def editor_writer(state: AgentState):
     final_md += "\n---\n\n## DETAILED COMPANY REPORTS\n\n"
     for report in newsletter.company_reports:
         # Filter out empty or "no news" sections
-        if (
-            len(report.update) > 50
-            and "no significant news" not in report.update.lower()
-        ):
+        if len(report.update) > 50 and "no significant news" not in report.update.lower():
             final_md += f"### {report.name}\n\n{report.update}\n\n"
 
     final_md += "\n\n---\n**Report compiled by The Daily AI Editorial Team**"
 
-    return {"final_report": final_md}
+    return {"final_report": final_md, "steps": 4}
