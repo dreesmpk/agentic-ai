@@ -9,7 +9,7 @@ from app.config import CONFIG, TARGET_COMPANIES, BLACKLIST_DOMAINS
 from app.services.search import tavily_news
 from app.services.scraper import scrape_url
 from app.services.llm import newsletter_generator, article_summarizer
-from app.agent.prompts import ANALYSIS_SYSTEM_PROMPT, get_editor_prompt
+from app.agent.prompts import get_analysis_prompt, get_editor_prompt
 
 
 def monitor_news(state: AgentState):
@@ -164,8 +164,11 @@ def summarize_node(state: dict):
 
     print(f"   [Summarizer] Processing: {original_url} (Date: {article_date})")
 
-    # Prepare System Prompt
-    system_msg = SystemMessage(content=ANALYSIS_SYSTEM_PROMPT)
+    target_names = [t["name"] for t in TARGET_COMPANIES]
+
+    system_prompt_str = get_analysis_prompt(target_names)
+
+    system_msg = SystemMessage(content=system_prompt_str)
 
     try:
         # Invoke LLM
