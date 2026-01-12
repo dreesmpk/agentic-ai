@@ -1,5 +1,6 @@
 import os
 from typing import List, TypedDict
+
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -7,10 +8,12 @@ load_dotenv()
 
 # --- General Configuration ---
 CONFIG = {
-    "days_back": 7,
+    "days_back": 3,
     "max_search_results": 5,
     "rate_limit_delay": 2.0,
     "search_depth": "basic",
+    "min_search_score": 0.4,
+    "max_concurrency": 5,
 }
 
 # --- Email Settings ---
@@ -309,3 +312,87 @@ TARGET_COMPANIES: List[TargetCompany] = [
         ],
     },
 ]
+
+# TARGET_COMPANIES: List[TargetCompany] = [
+#     {
+#         "name": "OpenAI",
+#         "keywords": [
+#             "openai",
+#             "chatgpt",
+#             "gpt-",
+#             "sam altman",
+#             "codex",
+#             "sora",
+#             "mark chen",
+#         ],
+#     },
+#     {
+#         "name": "Google DeepMind",
+#         "keywords": [
+#             "deepmind",
+#             "gemini",
+#             "google ai",
+#             "google",
+#             "demis hassabis",
+#             "veo",
+#             "ai studio",
+#             "antigravity",
+#             "nano banana",
+#             "gemma",
+#             "imagen",
+#             "synthid",
+#             "lyria",
+#             "alphago",
+#             "alphazero",
+#         ],
+#     },
+#     {
+#         "name": "Microsoft AI",
+#         "keywords": [
+#             "microsoft",
+#             "copilot",
+#             "satya nadella",
+#             "azure ai",
+#             "phi",
+#             "foundry",
+#             "aurora",
+#             "magma",
+#             "muse",
+#             "autogen",
+#         ],
+#     },
+#     {
+#         "name": "Anthropic",
+#         "keywords": [
+#             "anthropic",
+#             "claude",
+#             "dario amodei",
+#             "opus",
+#             "sonnet",
+#             "haiku",
+#         ],
+#     },
+#     {
+#         "name": "NVIDIA",
+#         "keywords": [
+#             "nvidia",
+#             "jensen huang",
+#             "gpu",
+#             "blackwell",
+#             "omniverse",
+#             "dgx",
+#             "hgx",
+#             "igx",
+#             "ovx",
+#             "geforce",
+#             "nemo",
+#             "nim",
+#             "dynamo",
+#             "metropolis",
+#             "cosmos",
+#             "isaac groot",
+#             "clara",
+#             "nemotron",
+#         ],
+#     },
+# ]
