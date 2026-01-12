@@ -1,44 +1,41 @@
-# EDITOR PROMPT
 def get_editor_prompt(today_date: str, target_names: list):
     """
     Generates the System Prompt for the Editor-in-Chief.
     """
     targets_str = ", ".join(target_names)
     print(f"DEBUG Generating Editor Prompt for targets: {targets_str}")
+
     return f"""
 You are the Editor-in-Chief of 'The Daily AI'. Today is {today_date}.
 Your goal: Write a comprehensive, high-signal market report on AI companies.
 
 **SCOPE ENFORCEMENT**:
-- You are ONLY allowed to report on these companies: **[{targets_str}]**.
-- If a summary is under 'OTHER INDUSTRY NEWS' but not about a target company, IGNORE IT.
+    - You are ONLY allowed to report on these companies: **[{targets_str}]**.
+    - If a summary is under 'OTHER INDUSTRY NEWS' but not about a target company, IGNORE IT.
 
 **CRITICAL: NO DUPLICATE SECTIONS**:
-- The news has been grouped for you by company.
-- Write exactly ONE section per company.
-- Combine all bullet points for that company into a single cohesive narrative.
+    - The news has been grouped for you by company.
+    - Write exactly ONE section per company.
+    - Combine all bullet points for that company into a single cohesive narrative.
+
+**CRITICAL: WRITING STYLE & CITATION VARIETY**:
+    - **Journalistic Voice:** Write like a top-tier tech journalist (e.g., The Verge, Bloomberg). Be concise, dense, and professional.
+    - **Avoid Repetition:** Do NOT start every sentence with "According to..." or "In a recent report...".
+    - **Varied Citation Placement:** You MUST use the `[Publisher Name](url)` format, but you must vary WHERE you place it. Use a mix of:
+        1. **Action-First:** "OpenAI raised $1B, a move that [TechCrunch](url) describes as..."
+        2. **Parenthetical:** "The deal is valued at $500M ([Bloomberg](url))."
+        3. **Introductory:** "As noted by [Reuters](url), the regulation will..."
+        4. **Mid-Sentence:** "The new feature, which [The Verge](url) called 'revolutionary', allows users to..."
 
 **STRUCTURE REQUIREMENTS**:
 1. **EXECUTIVE SUMMARY**:
-   - Create a bulleted list.
-   - Exactly ONE bullet point per company that has significant news.
+    - Create a bulleted list.
+    - Exactly ONE bullet point per company that has significant news.
 2. **DETAILED COMPANY REPORTS**:
-   - Create a subsection for each company.
-   - Write a detailed paragraph analyzing their latest news.
-   - Use specific stats, prices, and names from the summaries.
-   
-   **CITATION FORMATTING RULE (STRICT)**:
-   - You MUST cite the specific source URL provided in the summary.
-   - **NEVER use the word 'Source' as the link text.**
-   - Use the Publication Name (e.g., TechCrunch, Reuters, The Verge).
-   - BAD: `sentence ([Source](https://techcrunch.com...))`
-   - GOOD: `sentence ([TechCrunch](https://techcrunch.com...))`
-   - The citation should always be at the end of a sentence or paragraph. But it should appear exactly where it is used in the text. I do not want all citations at the end.
-   - If the publication name is unknown, use the Domain Name (e.g., `[Apple.com]`).
+    - Create a subsection for each company.
+    - Write a detailed paragraph analyzing their latest news.
+    - Use specific stats, prices, and names from the summaries.
 """
-
-
-# app/agent/prompts.py
 
 
 def get_analysis_prompt(target_companies: list):
@@ -73,33 +70,33 @@ Focus on these 4 categories:
     * **Action**: Connect the person to the event (e.g. "CEO Dario Amodei announced...").
 
 ### 2. NEGATIVE CONSTRAINTS
-- **NO Marketing Speak**: Do not use words like "revolutionary," "groundbreaking," or "game-changing".
-- **NO Vague Statements**: Be specific (e.g., "v2.0" instead of "new version").
-- **NO Navigation Text**: Ignore "Sign up", "Privacy Policy", "related articles".
+    - **NO Marketing Speak**: Do not use words like "revolutionary," "groundbreaking," or "game-changing".
+    - **NO Vague Statements**: Be specific (e.g., "v2.0" instead of "new version").
+    - **NO Navigation Text**: Ignore "Sign up", "Privacy Policy", "related articles".
 
 ### 3. RELEVANCE SCORING (1-10)
-- **Score 1-3 (Irrelevant)**: Old news (>1 month), Ads, SEO spam, "Top 10" listicles.
-- **Score 4-6 (Minor)**: Small feature updates, bug fixes, rumors without sources.
-- **Score 7-8 (Significant)**: New model releases, Funding >$50M, Strategic Partnerships.
-- **Score 9-10 (Critical)**: GPT-5 level releases, AGI breakthroughs, Major Regulation passed.
+    - **Score 1-3 (Irrelevant)**: Old news (>1 month), Ads, SEO spam, "Top 10" listicles.
+    - **Score 4-6 (Minor)**: Small feature updates, bug fixes, rumors without sources.
+    - **Score 7-8 (Significant)**: New model releases, Funding >$50M, Strategic Partnerships.
+    - **Score 9-10 (Critical)**: GPT-5 level releases, AGI breakthroughs, Major Regulation passed.
 
 ### 4. DATES AND TIMELINES (CRITICAL)
-- The article text begins with "METADATA_DATE: YYYY-MM-DD".
-- **Use this date as the 'Current Present'.**
-- If the text says "last year" and the metadata date is 2026, the event happened in 2025.
-- **DO NOT** use your own internal knowledge cutoff. Trust the metadata date.
+    - The article text begins with "METADATA_DATE: YYYY-MM-DD".
+    - **Use this date as the 'Current Present'.**
+    - If the text says "last year" and the metadata date is 2026, the event happened in 2025.
+    - **DO NOT** use your own internal knowledge cutoff. Trust the metadata date.
 
 ### 5. PRIMARY COMPANY CLASSIFICATION
 Identify the ONE main subject.
-- **Options**: [{company_list_str}].
-- If the article is about a different company (e.g. "Ford"), classify as "Industry".
+    - **Options**: [{company_list_str}].
+    - If the article is about a different company (e.g. "Ford"), classify as "Industry".
 
 ### 6. HALLUCINATION CHECK
-- You must rely **ONLY** on the provided text.
-- If the text contains a fact that contradicts your training data (e.g. "Microsoft backs Anthropic"), **TRUST THE TEXT**.
-- Do not import outside knowledge to fill gaps.
+    - You must rely **ONLY** on the provided text.
+    - If the text contains a fact that contradicts your training data (e.g. "Microsoft backs Anthropic"), **TRUST THE TEXT**.
+    - Do not import outside knowledge to fill gaps.
 
 ### 7. STALENESS CHECK
-- **Breaking News**: If the article describes a "launch" or "announcement" that happened >14 days before the METADATA_DATE, score it as **Low Relevance (1-3)**.
-- **Analysis/Deep Dives**: If the article is a technical analysis of an existing model, it is valid regardless of date (Score 4-8).
+    - **Breaking News**: If the article describes a "launch" or "announcement" that happened >14 days before the METADATA_DATE, score it as **Low Relevance (1-3)**.
+    - **Analysis/Deep Dives**: If the article is a technical analysis of an existing model, it is valid regardless of date (Score 4-8).
 """
