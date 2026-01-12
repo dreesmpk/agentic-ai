@@ -4,12 +4,19 @@ from app.services.email import send_email
 
 if __name__ == "__main__":
     print(
-        f"🚀 Starting AI Newsletter Agent ({datetime.datetime.now().strftime('%Y-%m-%d')})"
+        f"Starting AI Newsletter Agent ({datetime.datetime.now().strftime('%Y-%m-%d')})"
     )
 
     # Run the graph
     final_state = workflow_app.invoke(
-        {"raw_news": [], "opinions": [], "seen_urls": [], "steps": 0}
+        {
+            "search_results": [],
+            "scraped_articles": [],
+            "summaries": [],
+            "seen_urls": [],
+            "final_report": "",
+            "steps": 0,
+        }
     )
 
     report = final_state["final_report"]
@@ -19,7 +26,7 @@ if __name__ == "__main__":
     with open(filename, "w", encoding="utf-8") as f:
         f.write(report)
 
-    print(f"\n✅ Report saved to: {filename}")
+    print(f"\n Report saved to: {filename}")
 
     # Send Email
     send_email(report)
