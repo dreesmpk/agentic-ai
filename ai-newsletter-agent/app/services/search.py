@@ -1,5 +1,5 @@
+from app.config import BLACKLIST_DOMAINS, CONFIG
 from langchain_tavily import TavilySearch
-from app.config import CONFIG, BLACKLIST_DOMAINS
 
 # Tool for finding specific company news
 tavily_news = TavilySearch(
